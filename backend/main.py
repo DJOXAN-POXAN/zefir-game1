@@ -7,6 +7,7 @@ import random
 import string
 import sys
 from pathlib import Path
+import os
 
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -87,13 +88,6 @@ def team_actions_used_this_round(game: m.Game, team_id: str) -> list:
 
 
 def team_battle_actions_left(team: m.Team, game: m.Game) -> int:
-    """
-    Сколько "боевых" действий (атака или восстановление — общий пул, каждое
-    доступно не более одного раза за раунд; разведка в этот пул не входит
-    и не лимитирована) ещё доступно команде в этой битве.
-    Базово — 1 действие за раунд. Энергия 3+ даёт +1. Купленный "Двойной ход"
-    даёт ещё +1, но только один раз за всю игру (заряд сгорает по итогу раунда).
-    """
     used = team_actions_used_this_round(game, team.id)
     used_slots = sum(1 for a in used if a.action_type in ("attack", "repair"))
     base_slots = 1 + gl.energy_extra_actions(team)
@@ -186,7 +180,6 @@ def build_view(db: Session, game: m.Game, role: str, team_id: str | None) -> dic
             mod: gl.upgrade_cost(getattr(me, f"lvl_{mod}")) for mod in gl.MODULES
         }
         base["damaged_modules"] = gl.damaged_modules(me)
-        # Возможности в фазе битвы — фронт использует их, чтобы дизейблить кнопки.
         actions_left = team_battle_actions_left(me, game)
         base["can_attack"] = (
             game.phase == "battle" and actions_left > 0
@@ -296,8 +289,6 @@ async def buy_service(room_code: str, body: BuyServiceIn, db: Session = Depends(
     elif service == "theft":
         targets = [t for t in game.teams if t.id != team.id and t.coins > 0]
         if not targets:
-            # Откатываем списание — украсть не у кого, но услуга всё равно расходуется по правилам.
-            # Чтобы не наказывать команду за невезение, не списываем монеты и не отмечаем как купленную.
             team.coins += cost
             setattr(team, f"bought_{service}", False)
             raise HTTPException(400, "Некого грабить (у всех 0 монет), услуга не потрачена")
@@ -400,8 +391,6 @@ async def admin_next_phase(room_code: str, body: PhaseIn, db: Session = Depends(
         game.phase = "battle"
         log(db, game, "Фаза «Звёздная битва»: команды выбирают действия.")
     elif game.phase == "battle":
-        # Заряд "Двойного хода" расходуется по итогам той битвы, для которой был куплен,
-        # использован он был или нет.
         for t in game.teams:
             if t.double_action_charges > 0:
                 t.double_action_charges = 0
@@ -478,10 +467,6 @@ async def team_upgrade(room_code: str, body: UpgradeIn, db: Session = Depends(ge
 
 @app.post("/api/games/{room_code}/team/action")
 async def team_action(room_code: str, body: TeamActionIn, db: Session = Depends(get_db)):
-    """
-    Действия применяются НЕМЕДЛЕННО, без подтверждения ведущим — чтобы
-    несколько команд могли играть параллельно без ожидания в очереди.
-    """
     game, team = require_team(db, room_code, body.token)
     if game.phase != "battle":
         raise HTTPException(400, "Действия доступны только в фазе «Звёздная битва»")
@@ -590,7 +575,7 @@ async def ws_endpoint(websocket: WebSocket, room_code: str, token: str, role: st
     await websocket.send_json(build_view(db, game, role, team_id))
     try:
         while True:
-            await websocket.receive_text()  # клиент может присылать ping
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(room_code, websocket)
         if role == "team" and team_id:
@@ -605,19 +590,50 @@ async def ws_endpoint(websocket: WebSocket, room_code: str, token: str, role: st
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
 
+# Диагностика
+print(f"📁 BASE_DIR = {BASE_DIR}")
+print(f"📁 FRONTEND_DIR = {FRONTEND_DIR}")
+print(f"📁 FRONTEND_DIR exists: {FRONTEND_DIR.exists()}")
+if FRONTEND_DIR.exists():
+    print(f"📄 Files in frontend: {[f.name for f in FRONTEND_DIR.iterdir()]}")
+else:
+    # Возможно, frontend находится в другом месте (например, в корне проекта на Railway)
+    alt_frontend = Path(os.getcwd()) / "frontend"
+    print(f"🔍 Альтернативный путь: {alt_frontend}, exists: {alt_frontend.exists()}")
+    if alt_frontend.exists():
+        FRONTEND_DIR = alt_frontend
+        print(f"✅ Используем альтернативный путь: {FRONTEND_DIR}")
+
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
 @app.get("/")
 def root():
-    return FileResponse(str(FRONTEND_DIR / "index.html"))
+    try:
+        index_path = FRONTEND_DIR / "index.html"
+        if not index_path.exists():
+            raise FileNotFoundError(f"index.html not found at {index_path}")
+        return FileResponse(str(index_path))
+    except Exception as e:
+        print(f"❌ Error serving index.html: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e), "path": str(FRONTEND_DIR / "index.html")}
 
 
 @app.get("/admin")
 def admin_page():
-    return FileResponse(str(FRONTEND_DIR / "admin.html"))
+    try:
+        return FileResponse(str(FRONTEND_DIR / "admin.html"))
+    except Exception as e:
+        print(f"❌ Error serving admin.html: {e}")
+        return {"error": str(e)}
 
 
 @app.get("/team")
 def team_page():
-    return FileResponse(str(FRONTEND_DIR / "team.html"))
+    try:
+        return FileResponse(str(FRONTEND_DIR / "team.html"))
+    except Exception as e:
+        print(f"❌ Error serving team.html: {e}")
+        return {"error": str(e)}
