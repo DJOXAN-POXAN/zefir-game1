@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Зефирные космолёты 🌸</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🚀%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <!-- Подключаем общие скрипты (там определена openRules) -->
+    <script src="/static/common.js"></script>
+    <style>
+        .main-card { max-width: 440px; margin: 0 auto; }
+        .join-row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .join-row input { flex: 1; min-width: 120px; }
+        .title-emoji { font-size: 4rem; text-align: center; }
+        .subtitle { font-size: 1.2rem; color: var(--text-dim); }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="title-emoji">🚀🍬</div>
+        <h1 style="text-align:center;">Зефирные космолёты</h1>
+        <p class="subtitle" style="text-align:center; margin-bottom:24px;">Мягкий фестиваль мягких навыков</p>
+        <div class="card main-card stack">
+            <h2>Создать игру</h2>
+            <button onclick="location.href='/admin'" class="secondary" style="width:100%;">Я ведущий →</button>
+            <hr style="border: none; border-top: 2px dashed rgba(255,182,193,0.4); margin: 16px 0;" />
+            <h2>Присоединиться</h2>
+            <div class="join-row">
+                <input type="text" id="roomCode" placeholder="Код комнаты" maxlength="5" style="text-transform:uppercase;" />
+                <input type="text" id="teamName" placeholder="Название команды" />
+            </div>
+            <button id="joinBtn" style="width:100%;">Войти</button>
+            <div id="joinMsg" class="muted"></div>
+            <!-- Кнопка правил теперь работает, т.к. common.js подключён -->
+            <button class="ghost" onclick="openRules()" style="width:100%;">📖 Правила игры</button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('joinBtn').addEventListener('click', async () => {
+            const code = document.getElementById('roomCode').value.trim().toUpperCase();
+            const name = document.getElementById('teamName').value.trim();
+            const msg = document.getElementById('joinMsg');
+            if (!code || !name) { msg.textContent = '❌ Заполните все поля'; return; }
+            try {
+                const res = await fetch(`/api/games/${code}/join`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Ошибка');
+                const params = new URLSearchParams({ room: code, token: data.token });
+                window.location.href = `/team?${params}`;
+            } catch (e) {
+                msg.textContent = '❌ ' + e.message;
+            }
+        });
+    </script>
+</body>
+</html>
