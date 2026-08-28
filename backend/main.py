@@ -587,6 +587,9 @@ async def ws_endpoint(websocket: WebSocket, room_code: str, token: str, role: st
 
 # -------------------------------------------------------- статика фронтенда
 
+from fastapi.responses import FileResponse, JSONResponse
+import os
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
 
@@ -596,13 +599,20 @@ print(f"📁 FRONTEND_DIR = {FRONTEND_DIR}")
 print(f"📁 FRONTEND_DIR exists: {FRONTEND_DIR.exists()}")
 if FRONTEND_DIR.exists():
     print(f"📄 Files in frontend: {[f.name for f in FRONTEND_DIR.iterdir()]}")
-else:
-    # Возможно, frontend находится в другом месте (например, в корне проекта на Railway)
-    alt_frontend = Path(os.getcwd()) / "frontend"
-    print(f"🔍 Альтернативный путь: {alt_frontend}, exists: {alt_frontend.exists()}")
-    if alt_frontend.exists():
-        FRONTEND_DIR = alt_frontend
-        print(f"✅ Используем альтернативный путь: {FRONTEND_DIR}")
+
+# Проверяем, что файлы существуют и читаются
+def check_file(path: Path):
+    if not path.exists():
+        return f"❌ File not found: {path}"
+    if not os.access(str(path), os.R_OK):
+        return f"❌ File not readable: {path}"
+    return f"✅ File OK: {path}"
+
+print(check_file(FRONTEND_DIR / "index.html"))
+print(check_file(FRONTEND_DIR / "admin.html"))
+print(check_file(FRONTEND_DIR / "team.html"))
+print(check_file(FRONTEND_DIR / "common.js"))
+print(check_file(FRONTEND_DIR / "styles.css"))
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
@@ -615,25 +625,44 @@ def root():
             raise FileNotFoundError(f"index.html not found at {index_path}")
         return FileResponse(str(index_path))
     except Exception as e:
-        print(f"❌ Error serving index.html: {e}")
         import traceback
-        traceback.print_exc()
-        return {"error": str(e), "path": str(FRONTEND_DIR / "index.html")}
+        error_msg = f"❌ Error serving index.html: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "trace": traceback.format_exc(), "path": str(index_path)}
+        )
 
 
 @app.get("/admin")
 def admin_page():
     try:
-        return FileResponse(str(FRONTEND_DIR / "admin.html"))
+        admin_path = FRONTEND_DIR / "admin.html"
+        if not admin_path.exists():
+            raise FileNotFoundError(f"admin.html not found at {admin_path}")
+        return FileResponse(str(admin_path))
     except Exception as e:
-        print(f"❌ Error serving admin.html: {e}")
-        return {"error": str(e)}
+        import traceback
+        error_msg = f"❌ Error serving admin.html: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "trace": traceback.format_exc(), "path": str(admin_path)}
+        )
 
 
 @app.get("/team")
 def team_page():
     try:
-        return FileResponse(str(FRONTEND_DIR / "team.html"))
+        team_path = FRONTEND_DIR / "team.html"
+        if not team_path.exists():
+            raise FileNotFoundError(f"team.html not found at {team_path}")
+        return FileResponse(str(team_path))
     except Exception as e:
-        print(f"❌ Error serving team.html: {e}")
-        return {"error": str(e)}
+        import traceback
+        error_msg = f"❌ Error serving team.html: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "trace": traceback.format_exc(), "path": str(team_path)}
+        )
