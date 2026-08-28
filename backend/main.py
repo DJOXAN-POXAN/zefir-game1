@@ -587,82 +587,64 @@ async def ws_endpoint(websocket: WebSocket, room_code: str, token: str, role: st
 
 # -------------------------------------------------------- статика фронтенда
 
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
 
-# Диагностика
-print(f"📁 BASE_DIR = {BASE_DIR}")
-print(f"📁 FRONTEND_DIR = {FRONTEND_DIR}")
-print(f"📁 FRONTEND_DIR exists: {FRONTEND_DIR.exists()}")
-if FRONTEND_DIR.exists():
-    print(f"📄 Files in frontend: {[f.name for f in FRONTEND_DIR.iterdir()]}")
-
-# Проверяем, что файлы существуют и читаются
-def check_file(path: Path):
+def read_file_safe(path: Path):
     if not path.exists():
-        return f"❌ File not found: {path}"
+        raise FileNotFoundError(f"File not found: {path}")
     if not os.access(str(path), os.R_OK):
-        return f"❌ File not readable: {path}"
-    return f"✅ File OK: {path}"
+        raise PermissionError(f"File not readable: {path}")
+    with open(path, 'r', encoding='utf-8') as f:
+        return f.read()
 
-print(check_file(FRONTEND_DIR / "index.html"))
-print(check_file(FRONTEND_DIR / "admin.html"))
-print(check_file(FRONTEND_DIR / "team.html"))
-print(check_file(FRONTEND_DIR / "common.js"))
-print(check_file(FRONTEND_DIR / "styles.css"))
+# Монтируем статику (для CSS/JS)
+try:
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+    print("✅ Static mounted successfully")
+except Exception as e:
+    print(f"❌ Static mount error: {e}")
 
-app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
-
+# Тестовый эндпоинт для проверки, что приложение живёт
+@app.get("/ping")
+def ping():
+    return {"status": "ok", "message": "Server is alive!"}
 
 @app.get("/")
 def root():
     try:
         index_path = FRONTEND_DIR / "index.html"
-        if not index_path.exists():
-            raise FileNotFoundError(f"index.html not found at {index_path}")
-        return FileResponse(str(index_path))
+        content = read_file_safe(index_path)
+        return HTMLResponse(content=content)
     except Exception as e:
         import traceback
         error_msg = f"❌ Error serving index.html: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e), "trace": traceback.format_exc(), "path": str(index_path)}
-        )
-
+        return JSONResponse(status_code=500, content={"error": str(e), "trace": traceback.format_exc()})
 
 @app.get("/admin")
 def admin_page():
     try:
         admin_path = FRONTEND_DIR / "admin.html"
-        if not admin_path.exists():
-            raise FileNotFoundError(f"admin.html not found at {admin_path}")
-        return FileResponse(str(admin_path))
+        content = read_file_safe(admin_path)
+        return HTMLResponse(content=content)
     except Exception as e:
         import traceback
         error_msg = f"❌ Error serving admin.html: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e), "trace": traceback.format_exc(), "path": str(admin_path)}
-        )
-
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/team")
 def team_page():
     try:
         team_path = FRONTEND_DIR / "team.html"
-        if not team_path.exists():
-            raise FileNotFoundError(f"team.html not found at {team_path}")
-        return FileResponse(str(team_path))
+        content = read_file_safe(team_path)
+        return HTMLResponse(content=content)
     except Exception as e:
         import traceback
         error_msg = f"❌ Error serving team.html: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e), "trace": traceback.format_exc(), "path": str(team_path)}
-        )
+        return JSONResponse(status_code=500, content={"error": str(e)})
