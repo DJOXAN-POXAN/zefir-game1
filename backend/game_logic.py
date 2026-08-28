@@ -4,7 +4,7 @@ MODULES = ["attack", "defense", "energy", "tactics"]
 MODULE_NAMES = {"attack": "Атака", "defense": "Защита", "energy": "Энергия", "tactics": "Тактика"}
 MAX_LEVEL = 5
 
-ACTION_BASE_COST = {"attack": 30, "scout": 0, "repair": 40}
+ACTION_BASE_COST = {"attack": 30, "scout": 10, "repair": 40}
 
 UPGRADE_COST_TABLE = {1: 50, 2: 150, 3: 300, 4: 500}
 
