@@ -45,10 +45,10 @@ def upgrade_cost(current_level: int):
 
 
 def service_cost(team, service: str) -> int:
-    """Стоимость услуги с учётом скидки 20% от Тактики 5+."""
+    """Стоимость услуги с учётом скидки 70% от Тактики 5+."""
     cost = SERVICE_PRICES[service]
     if team.lvl_tactics >= 5:
-        cost = int(cost * 0.8)
+        cost = int(cost * 0.3)  # скидка 70%
     return cost
 
 
