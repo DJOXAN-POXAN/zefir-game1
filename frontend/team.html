@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Команда – Зефирные космолёты 🚀</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🚀%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/static/common.js"></script>
+    <style>
+        .ship-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 700px) { .ship-grid { grid-template-columns: 1fr; } }
+        .board-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: 14px; }
+        .action-btn-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .action-btn-group button { flex: 1; min-width: 80px; }
+        .module-upgrade-btn { font-size: 0.85rem; padding: 6px 12px; }
+        .services-section { margin-top: 20px; border-top: 2px dashed rgba(255,182,193,0.3); padding-top: 16px; }
+        button:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; transform: none !important; }
+        .svc-badges { display: flex; gap: 4px; margin-top: 4px; }
+        .svc-badge { opacity: 0.35; font-size: 0.95rem; }
+        .svc-badge.active { opacity: 1; filter: drop-shadow(0 0 3px rgba(255,182,193,0.8)); }
+        .actions-left-note { font-size: 0.85rem; color: var(--text-dim); margin-top: 8px; }
+        .module-select-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+        .module-select-row label { font-size: 0.9rem; color: var(--text-dim); }
+    </style>
+</head>
+<body>
+    <div class="wrap" id="app">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h1>🚀 <span id="teamNameDisplay">Команда</span></h1>
+            <div>
+                <button class="ghost" onclick="openRules()">📖 Правила</button>
+                <span class="phase-badge" id="phaseBadgeTeam">Ожидание</span>
+            </div>
+        </div>
+        <div id="teamPanel">
+            <div class="ship-grid">
+                <div class="card">
+                    <h2>Мой корабль</h2>
+                    <div><strong>Монеты:</strong> <span id="coinsDisplay" class="coins">0</span></div>
+                    <div id="modulesContainer"></div>
+                    <div id="upgradeSection" style="margin-top:16px; display:none;">
+                        <h4>Прокачка</h4>
+                        <div id="upgradeButtons" class="action-btn-group"></div>
+                        <div id="upgradeMsg" class="muted"></div>
+                    </div>
+                    <div id="servicesSection" class="services-section" style="display:none;">
+                        <h4>⭐ Разовые услуги</h4>
+                        <div id="servicesButtons" class="action-btn-group"></div>
+                        <div id="serviceMsg" class="muted"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Действия в битве</h2>
+                    <div id="battleSection" style="display:none;">
+                        <p>Выберите цель и действие:</p>
+                        <select id="targetSelect" style="width:100%; margin-bottom:10px;"></select>
+                        <div id="attackModuleRow" class="module-select-row" style="display:none;">
+                            <label for="attackModuleSelect">Модуль цели (Тактика 3+):</label>
+                            <select id="attackModuleSelect"></select>
+                        </div>
+                        <div class="action-btn-group">
+                            <button id="attackBtn" class="danger">⚔️ Атака (30)</button>
+                            <button id="scoutBtn" class="secondary">🔭 Разведка</button>
+                            <button id="repairBtn" class="mint">🔧 Восстановление (40)</button>
+                        </div>
+                        <div id="actionsLeftNote" class="actions-left-note"></div>
+                        <div id="actionMsg" class="muted"></div>
+                        <div id="myActionsContainer" style="margin-top:14px;"></div>
+                    </div>
+                    <div id="noBattleMsg" class="muted">Действия доступны только в фазе «Звёздная битва»</div>
+                </div>
+            </div>
+            <div class="card" style="margin-top:20px;">
+                <h3>Космическая доска</h3>
+                <div id="boardContainer" class="board-grid"><p class="muted">Нет других кораблей</p></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let gameState = null, ws = null, pollInterval = null;
+
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(async () => {
+                const params = new URLSearchParams(window.location.search);
+                const room = params.get('room');
+                const token = params.get('token');
+                if (!room || !token) return;
+                try {
+                    const data = await apiGet(`/api/games/${room}/state?token=${token}&role=team`);
+                    if (data.type === 'state') { gameState = data; render(); }
+                } catch (e) {}
+            }, 3000);
+        }
+
+        async function refreshState() {
+            const params = new URLSearchParams(window.location.search);
+            const room = params.get('room');
+            const token = params.get('token');
+            const data = await apiGet(`/api/games/${room}/state?token=${token}&role=team`);
+            if (data.type === 'state') { gameState = data; render(); }
+        }
+
+        async function buyService(service) {
+            const params = new URLSearchParams(window.location.search);
+            const room = params.get('room');
+            const token = params.get('token');
+            try {
+                const res = await apiPost(`/api/games/${room}/team/buy_service`, { token, service });
+                document.getElementById('serviceMsg').textContent = '✅ ' + (res.message || 'Услуга куплена!');
+                await refreshState();
+            } catch(e) {
+                document.getElementById('serviceMsg').textContent = '❌ ' + e.message;
+            }
+        }
+
+        async function initTeam() {
+            const params = new URLSearchParams(window.location.search);
+            const room = params.get('room');
+            const token = params.get('token');
+            if (!room || !token) {
+                document.getElementById('teamPanel').innerHTML = '<p class="muted">❌ Не указан код или токен</p>';
+                return;
+            }
+            try {
+                await refreshState();
+            } catch(e) { toast('Ошибка загрузки', true); }
+            ws = connectWs(room, token, 'team', onState, () => toast('Переподключение...', true));
+            startPolling();
+            document.getElementById('attackBtn').addEventListener('click', () => sendAction('attack'));
+            document.getElementById('scoutBtn').addEventListener('click', () => sendAction('scout'));
+            document.getElementById('repairBtn').addEventListener('click', onRepairClick);
+        }
+
+        function onState(state) { if (state.type !== 'state') return; gameState = state; render(); }
+
+        function onRepairClick() {
+            const s = gameState;
+            const me = s.me;
+            const damaged = s.damaged_modules || [];
+            if (!damaged.length) { toast('Нечего восстанавливать', true); return; }
+            if (damaged.length === 1) {
+                sendAction('repair', damaged[0]);
+                return;
+            }
+            // Несколько повреждённых модулей — просим выбрать через простое подтверждение по очереди
+            const labels = damaged.map(m => MODULE_META[m].label).join(', ');
+            const choice = prompt(`Какой модуль восстановить? Повреждены: ${labels}`, damaged[0]);
+            if (choice && damaged.includes(choice)) {
+                sendAction('repair', choice);
+            } else if (choice) {
+                // Попробуем сматчить по label, если ввели по-русски
+                const found = damaged.find(m => MODULE_META[m].label.toLowerCase() === choice.trim().toLowerCase());
+                if (found) sendAction('repair', found);
+                else toast('Некорректный модуль', true);
+            }
+        }
+
+        function render() {
+            if (!gameState) return;
+            const s = gameState;
+            const me = s.me;
+            if (!me) return;
+            document.getElementById('teamNameDisplay').textContent = me.name;
+            document.getElementById('coinsDisplay').textContent = me.coins;
+
+            const phaseBadge = document.getElementById('phaseBadgeTeam');
+            phaseBadge.textContent = PHASE_LABEL[s.phase] || s.phase;
+            phaseBadge.className = 'phase-badge phase-' + s.phase;
+
+            const modules = [
+                { key: 'attack', ...MODULE_META.attack },
+                { key: 'defense', ...MODULE_META.defense },
+                { key: 'energy', ...MODULE_META.energy },
+                { key: 'tactics', ...MODULE_META.tactics },
+            ];
+            let html = '';
+            modules.forEach(mod => {
+                const lvl = me[mod.key] || 1;
+                html += moduleBar(mod.label, mod.cls, lvl);
+            });
+            document.getElementById('modulesContainer').innerHTML = html;
+
+            const upgradeSection = document.getElementById('upgradeSection');
+            const servicesSection = document.getElementById('servicesSection');
+            if (s.phase === 'upgrade' && s.upgrade_costs) {
+                upgradeSection.style.display = 'block';
+                servicesSection.style.display = 'block';
+
+                const hasFreeUpgrade = me.free_upgrade_charges > 0;
+                let btns = '';
+                modules.forEach(mod => {
+                    const cost = s.upgrade_costs[mod.key];
+                    const lvl = me[mod.key] || 1;
+                    if (cost === null) {
+                        btns += `<button disabled class="module-upgrade-btn">${mod.label} макс.</button>`;
+                    } else {
+                        const priceLabel = hasFreeUpgrade ? 'бесплатно ⚡' : cost + '🪙';
+                        btns += `<button class="module-upgrade-btn yellow" onclick="upgradeModule('${mod.key}')">${mod.label} → ${lvl+1} (${priceLabel})</button>`;
+                    }
+                });
+                document.getElementById('upgradeButtons').innerHTML = btns;
+                document.getElementById('upgradeMsg').textContent = '';
+
+                // Разовые услуги: кнопка пропадает, если уже куплена.
+                const prices = s.service_prices || {};
+                let svcHtml = '';
+                const svcClasses = { shield: 'secondary', mass_attack: 'danger', theft: 'yellow', boost: 'mint', double: 'secondary' };
+                Object.keys(SERVICE_META).forEach(key => {
+                    const bought = me['bought_' + key];
+                    if (bought) return; // кнопка пропадает после покупки
+                    const meta = SERVICE_META[key];
+                    const price = prices[key] !== undefined ? prices[key] : meta.price;
+                    svcHtml += `<button onclick="buyService('${key}')" class="${svcClasses[key]}">${meta.icon} ${meta.label} (${price})</button>`;
+                });
+                if (!svcHtml) svcHtml = '<p class="muted">Все услуги уже куплены</p>';
+                document.getElementById('servicesButtons').innerHTML = svcHtml;
+            } else {
+                upgradeSection.style.display = 'none';
+                servicesSection.style.display = 'none';
+            }
+
+            const battleSection = document.getElementById('battleSection');
+            const noBattleMsg = document.getElementById('noBattleMsg');
+            if (s.phase === 'battle') {
+                battleSection.style.display = 'block';
+                noBattleMsg.style.display = 'none';
+
+                const select = document.getElementById('targetSelect');
+                const currentTarget = select.value;
+                select.innerHTML = '';
+                (s.board || []).forEach(t => {
+                    if (t.id === me.id) return;
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = t.name + ' (рейтинг ' + t.rating + ')';
+                    select.appendChild(opt);
+                });
+                if (select.options.length === 0) select.innerHTML = '<option value="">Нет целей</option>';
+                if (currentTarget && select.querySelector(`option[value="${currentTarget}"]`)) select.value = currentTarget;
+
+                // Выбор модуля атаки при Тактике 3+
+                const attackModuleRow = document.getElementById('attackModuleRow');
+                if (s.can_choose_attack_module) {
+                    attackModuleRow.style.display = 'flex';
+                    const msel = document.getElementById('attackModuleSelect');
+                    if (!msel.dataset.filled) {
+                        msel.innerHTML = Object.entries(MODULE_META).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+                        msel.dataset.filled = '1';
+                    }
+                } else {
+                    attackModuleRow.style.display = 'none';
+                }
+
+                // Дизейбл кнопок по возможностям с сервера — исключает натыкивание лишних запросов.
+                const attackBtn = document.getElementById('attackBtn');
+                const scoutBtn = document.getElementById('scoutBtn');
+                const repairBtn = document.getElementById('repairBtn');
+                attackBtn.disabled = !s.can_attack;
+                scoutBtn.disabled = !s.can_scout;
+                repairBtn.disabled = !s.can_repair;
+                attackBtn.title = s.can_attack ? '' : 'Нет доступных действий или целей';
+                repairBtn.title = s.can_repair ? '' : 'Нечего восстанавливать или нет доступных действий';
+                scoutBtn.title = s.can_scout ? '' : 'Все цели уже разведаны в этом раунде';
+
+                document.getElementById('actionsLeftNote').textContent =
+                    `Боевых действий (атака/восстановление) осталось в этом раунде: ${s.actions_left ?? 0}`;
+
+                if (s.my_actions && s.my_actions.length) {
+                    let ahtml = '<div class="muted" style="font-size:.9rem;">Ваши действия в этом раунде:</div>';
+                    s.my_actions.forEach(a => {
+                        ahtml += `<div>${ACTION_LABEL[a.action_type] || a.action_type} ${a.target_team_id ? '➜ ' + (s.board.find(t=>t.id===a.target_team_id)?.name || '?') : ''} ${a.module ? '🔧 ' + MODULE_META[a.module].label : ''}</div>`;
+                        if (a.result_text) ahtml += `<div class="muted" style="font-size:.85rem; margin-bottom:6px;">${a.result_text}</div>`;
+                    });
+                    document.getElementById('myActionsContainer').innerHTML = ahtml;
+                } else {
+                    document.getElementById('myActionsContainer').innerHTML = '<div class="muted">Вы ещё не совершали действий в этом раунде.</div>';
+                }
+            } else {
+                battleSection.style.display = 'none';
+                noBattleMsg.style.display = 'block';
+            }
+
+            const board = s.board || [];
+            let boardHtml = '';
+            board.forEach(t => {
+                const isMe = t.id === me.id;
+                const cls = isMe ? ' ship-card me' : ' ship-card';
+                boardHtml += `<div class="${cls}">`;
+                boardHtml += `<div class="name">${t.name} ${isMe ? '⭐' : ''}</div>`;
+                boardHtml += `<div class="rating">Рейтинг: ${t.rating}</div>`;
+                if (t.coins !== undefined) boardHtml += `<div>🪙 ${t.coins}</div>`;
+                if (t.attack !== undefined) boardHtml += `<div>⚔️ ${t.attack}</div>`;
+                if (t.defense !== undefined) boardHtml += `<div>🛡️ ${t.defense}</div>`;
+                if (t.energy !== undefined) boardHtml += `<div>⚡ ${t.energy}</div>`;
+                if (t.tactics !== undefined) boardHtml += `<div>🧠 ${t.tactics}</div>`;
+                boardHtml += serviceBadges(t);
+                if (t.revealed) boardHtml += `<div class="muted" style="font-size:.8rem;">🔍 раскрыт</div>`;
+                boardHtml += '</div>';
+            });
+            document.getElementById('boardContainer').innerHTML = boardHtml || '<p class="muted">Нет других кораблей</p>';
+        }
+
+        window.upgradeModule = async (mod) => {
+            const params = new URLSearchParams(window.location.search);
+            const room = params.get('room');
+            const token = params.get('token');
+            try {
+                await apiPost(`/api/games/${room}/team/upgrade`, { token, module: mod });
+                document.getElementById('upgradeMsg').textContent = '✅ Улучшено!';
+                await refreshState();
+            } catch(e) {
+                document.getElementById('upgradeMsg').textContent = '❌ ' + e.message;
+            }
+        };
+
+        async function sendAction(actionType, module = null) {
+            const params = new URLSearchParams(window.location.search);
+            const room = params.get('room');
+            const token = params.get('token');
+            const targetId = document.getElementById('targetSelect').value;
+            if (!targetId && actionType !== 'repair') {
+                document.getElementById('actionMsg').textContent = '❌ Выберите цель';
+                return;
+            }
+            const body = { token, action_type: actionType };
+            if (targetId && actionType !== 'repair') body.target_team_id = targetId;
+            if (module) body.module = module;
+            if (actionType === 'attack' && gameState && gameState.can_choose_attack_module) {
+                body.module = document.getElementById('attackModuleSelect').value;
+            }
+            // Сразу блокируем кнопки, чтобы не дать натыкать повторно, пока идёт запрос.
+            document.getElementById('attackBtn').disabled = true;
+            document.getElementById('scoutBtn').disabled = true;
+            document.getElementById('repairBtn').disabled = true;
+            try {
+                await apiPost(`/api/games/${room}/team/action`, body);
+                document.getElementById('actionMsg').textContent = '✅ Действие выполнено!';
+                await refreshState();
+            } catch(e) {
+                document.getElementById('actionMsg').textContent = '❌ ' + e.message;
+                await refreshState(); // вернуть корректное состояние кнопок
+            }
+        }
+
+        initTeam();
+    </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+[project]
+name = "zefir-game"
+version = "0.1.0"
+description = "Игра Зефирные космолеты для Софт Феста"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "sqlalchemy",
+    "python-multipart",
+    "websockets",
+    "psycopg2-binary",
+]
+
+[tool.vercel]
+entrypoint = "backend.main:app"

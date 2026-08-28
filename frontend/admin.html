@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ведущий – Зефирные космолёты 🛸</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛸%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/static/common.js"></script>
+    <style>
+        .admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 700px) { .admin-grid { grid-template-columns: 1fr; } }
+        .team-table td, .team-table th { padding: 8px 10px; }
+        .action-item { background: rgba(255,255,255,0.5); border-radius: 16px; padding: 12px; margin-bottom: 10px; backdrop-filter: blur(4px); }
+        .score-input { width: 70px; }
+        .phase-badge { font-size: 1.1rem; padding: 6px 20px; }
+    </style>
+</head>
+<body>
+    <div class="wrap" id="app">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h1>🛸 Панель ведущего</h1>
+            <div>
+                <button class="ghost" onclick="openRules()">📖 Правила</button>
+                <button class="danger" id="resetBtn" style="margin-left:8px;">🔄 Сбросить</button>
+            </div>
+        </div>
+        <div id="adminPanel" style="display:none;">
+            <div class="card" style="margin-bottom:20px;">
+                <div class="row" style="flex-wrap:wrap; gap:10px;">
+                    <span><strong>Код комнаты:</strong> <span id="roomCodeDisplay"></span></span>
+                    <span><strong>Раунд:</strong> <span id="roundDisplay">0</span> / <span id="totalRoundsDisplay">5</span></span>
+                    <span class="phase-badge" id="phaseBadge">Ожидание</span>
+                </div>
+                <div class="row" style="margin-top:16px; gap:10px; flex-wrap:wrap;">
+                    <button id="startBtn" class="mint">▶ Начать игру</button>
+                    <button id="nextPhaseBtn" class="secondary">⏩ Следующая фаза</button>
+                </div>
+            </div>
+
+            <div class="admin-grid">
+                <div class="card">
+                    <h3>Команды</h3>
+                    <div id="teamsContainer"><p class="muted">Нет команд</p></div>
+                    <div id="scoreSection" style="margin-top:16px; display:none;">
+                        <h4>Начислить очки</h4>
+                        <div id="scoreInputs"></div>
+                        <button id="applyScoreBtn" class="yellow" style="margin-top:10px;">✅ Применить очки</button>
+                        <div id="scoreMsg" class="muted"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Действия команд (применяются мгновенно)</h3>
+                    <div id="actionsContainer"><p class="muted">Нет действий</p></div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top:20px;">
+                <h3>История игры</h3>
+                <div id="historyContainer" class="history-box"><p class="muted">Пусто</p></div>
+            </div>
+        </div>
+
+        <!-- Форма создания/загрузки -->
+        <div id="setupPanel" class="card stack" style="max-width:440px; margin:0 auto;">
+            <input type="text" id="adminRoomInput" placeholder="Код комнаты (для загрузки)" maxlength="5" style="text-transform:uppercase;" />
+            <input type="text" id="adminTokenInput" placeholder="Токен ведущего" />
+            <input type="password" id="adminPasswordInput" placeholder="Пароль ведущего" />
+            <div class="row">
+                <button id="createGameBtn" style="flex:1;">✨ Создать игру</button>
+                <button id="loadGameBtn" class="secondary" style="flex:1;">📂 Загрузить</button>
+            </div>
+            <div id="adminMsg" class="muted"></div>
+        </div>
+    </div>
+
+    <script>
+        // (код администратора – тот же, что был рабочий, я его не меняю, только стиль)
+        document.addEventListener('DOMContentLoaded', function() {
+            let gameState = null, ws = null, pollInterval = null;
+            const roomCodeSpan = document.getElementById('roomCodeDisplay');
+            const roundDisplay = document.getElementById('roundDisplay');
+            const totalRoundsDisplay = document.getElementById('totalRoundsDisplay');
+            const phaseBadge = document.getElementById('phaseBadge');
+            const teamsContainer = document.getElementById('teamsContainer');
+            const actionsContainer = document.getElementById('actionsContainer');
+            const historyContainer = document.getElementById('historyContainer');
+            const scoreSection = document.getElementById('scoreSection');
+            const scoreInputs = document.getElementById('scoreInputs');
+
+            function startPolling() {
+                if (pollInterval) clearInterval(pollInterval);
+                pollInterval = setInterval(async () => {
+                    const params = new URLSearchParams(window.location.search);
+                    const room = params.get('room');
+                    const token = params.get('token');
+                    if (!room || !token) return;
+                    try {
+                        const data = await apiGet(`/api/games/${room}/state?token=${token}&role=admin`);
+                        if (data.type === 'state') { gameState = data; render(); }
+                    } catch (e) {}
+                }, 3000);
+            }
+
+            async function initAdmin() {
+                const params = new URLSearchParams(window.location.search);
+                const room = params.get('room');
+                const token = params.get('token');
+                const setupPanel = document.getElementById('setupPanel');
+                const adminPanel = document.getElementById('adminPanel');
+                if (room && token) {
+                    setupPanel.style.display = 'none';
+                    adminPanel.style.display = 'block';
+                    roomCodeSpan.textContent = room;
+                    ws = connectWs(room, token, 'admin', onState, () => toast('Переподключение...', true));
+                    startPolling();
+                    try {
+                        const data = await apiGet(`/api/games/${room}/state?token=${token}&role=admin`);
+                        onState({ type: 'state', ...data });
+                    } catch(e) { toast('Ошибка загрузки', true); }
+                    document.getElementById('startBtn').onclick = () => adminAction('/admin/start');
+                    document.getElementById('nextPhaseBtn').onclick = () => adminAction('/admin/next_phase');
+                    document.getElementById('resetBtn').onclick = () => {
+                        if (confirm('Сбросить игру?')) adminAction('/admin/reset');
+                    };
+                    document.getElementById('applyScoreBtn').onclick = applyScores;
+                } else {
+                    setupPanel.style.display = 'block';
+                    adminPanel.style.display = 'none';
+                }
+            }
+
+            async function adminAction(path) {
+                const room = roomCodeSpan.textContent;
+                const token = new URLSearchParams(window.location.search).get('token');
+                if (!token) return toast('Нет токена', true);
+                try { await apiPost(`/api/games/${room}${path}`, { token }); } catch(e) { toast('Ошибка: ' + e.message, true); }
+            }
+
+            function onState(state) { if (state.type !== 'state') return; gameState = state; render(); }
+
+            function render() {
+                if (!gameState) return;
+                const s = gameState;
+                roundDisplay.textContent = s.round_number;
+                totalRoundsDisplay.textContent = s.total_rounds;
+                const phaseMap = { lobby: 'Ожидание', challenge: 'Космический вызов', upgrade: 'Техобслуживание', battle: 'Звёздная битва', finished: 'Игра завершена' };
+                phaseBadge.textContent = phaseMap[s.phase] || s.phase;
+                phaseBadge.className = 'phase-badge phase-' + s.phase;
+
+                if (s.teams && s.teams.length) {
+                    let html = `<table class="team-table"><tr><th>Команда</th><th>Монеты</th><th>Атака</th><th>Защита</th><th>Энергия</th><th>Тактика</th><th>Рейтинг</th><th>Услуги</th></tr>`;
+                    s.teams.forEach(t => {
+                        html += `<tr><td><strong>${t.name}</strong></td>
+                            <td>${t.coins}</td>
+                            <td>${t.attack}</td><td>${t.defense}</td>
+                            <td>${t.energy}</td><td>${t.tactics}</td>
+                            <td>${t.rating}</td>
+                            <td>${serviceBadges(t)}</td></tr>`;
+                    });
+                    html += '</table>';
+                    teamsContainer.innerHTML = html;
+                } else {
+                    teamsContainer.innerHTML = '<p class="muted">Нет команд</p>';
+                }
+
+                if (s.actions && s.actions.length) {
+                    let html = '';
+                    s.actions.forEach(a => {
+                        html += `<div class="action-item">
+                            <div><strong>${a.team_name}</strong> — ${ACTION_LABEL[a.action_type] || a.action_type}
+                            ${a.target_name ? '➜ ' + a.target_name : ''}
+                            ${a.module ? '🔧 ' + (MODULE_META[a.module] ? MODULE_META[a.module].label : a.module) : ''}
+                            </div>
+                            <div class="muted" style="font-size:.85rem;">${a.result_text || ''}</div>
+                            </div>`;
+                    });
+                    actionsContainer.innerHTML = html;
+                } else {
+                    actionsContainer.innerHTML = '<p class="muted">Нет действий</p>';
+                }
+
+                if (s.history && s.history.length) {
+                    historyContainer.innerHTML = s.history.slice().reverse().map(h => `<div>• ${h}</div>`).join('');
+                } else {
+                    historyContainer.innerHTML = '<p class="muted">Пусто</p>';
+                }
+
+                if (s.phase === 'challenge' && s.teams && s.teams.length) {
+                    let savedValues = {};
+                    document.querySelectorAll('.score-input').forEach(inp => { savedValues[inp.dataset.team] = inp.value; });
+                    scoreSection.style.display = 'block';
+                    let html = '';
+                    s.teams.forEach(t => {
+                        const val = savedValues[t.id] !== undefined ? savedValues[t.id] : '0';
+                        html += `<div class="row" style="justify-content:space-between;">
+                            <span>${t.name}</span>
+                            <input type="number" class="score-input" data-team="${t.id}" value="${val}" min="0" />
+                        </div>`;
+                    });
+                    scoreInputs.innerHTML = html;
+                } else {
+                    scoreSection.style.display = 'none';
+                }
+            }
+
+            async function applyScores() {
+                const room = roomCodeSpan.textContent;
+                const token = new URLSearchParams(window.location.search).get('token');
+                const inputs = document.querySelectorAll('.score-input');
+                const scores = {};
+                inputs.forEach(inp => { const val = parseInt(inp.value); if (val > 0) scores[inp.dataset.team] = val; });
+                if (Object.keys(scores).length === 0) {
+                    document.getElementById('scoreMsg').textContent = 'Введите хотя бы одно положительное значение';
+                    return;
+                }
+                try {
+                    await apiPost(`/api/games/${room}/admin/score`, { token, scores });
+                    document.getElementById('scoreMsg').textContent = '✅ Очки начислены!';
+                    inputs.forEach(inp => inp.value = '0');
+                } catch(e) {
+                    document.getElementById('scoreMsg').textContent = '❌ ' + e.message;
+                }
+            }
+
+            const createBtn = document.getElementById('createGameBtn');
+            if (createBtn) {
+                createBtn.addEventListener('click', async () => {
+                    const password = document.getElementById('adminPasswordInput').value.trim();
+                    if (password !== 'FIMOZIK1') {
+                        document.getElementById('adminMsg').textContent = '❌ Неверный пароль ведущего!';
+                        return;
+                    }
+                    try {
+                        const res = await fetch('/api/games', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ total_rounds: 5, max_teams: 6 })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail);
+                        window.location.href = `/admin?room=${data.room_code}&token=${data.admin_token}`;
+                    } catch(e) {
+                        document.getElementById('adminMsg').textContent = '❌ ' + e.message;
+                    }
+                });
+            } else { console.error('createGameBtn not found'); }
+
+            const loadBtn = document.getElementById('loadGameBtn');
+            if (loadBtn) {
+                loadBtn.addEventListener('click', () => {
+                    const room = document.getElementById('adminRoomInput').value.trim().toUpperCase();
+                    const token = document.getElementById('adminTokenInput').value.trim();
+                    if (!room || !token) {
+                        document.getElementById('adminMsg').textContent = '❌ Введите код и токен';
+                        return;
+                    }
+                    window.location.href = `/admin?room=${room}&token=${token}`;
+                });
+            } else { console.error('loadGameBtn not found'); }
+
+            initAdmin();
+        });
+    </script>
+</body>
+</html>
