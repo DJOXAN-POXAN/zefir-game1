@@ -481,21 +481,29 @@ async def team_action(room_code: str, body: TeamActionIn, db: Session = Depends(
         db.add(action)
         log(db, game, text)
     elif body.action_type == "scout":
-        target = next((t for t in game.teams if t.id == body.target_team_id), None)
-        if not target or target.id == team.id:
-            raise HTTPException(400, "Выберите корректную цель")
-        current = gl.scouted_ids(team)
-        if target.id in current:
-            raise HTTPException(400, "Эта команда уже разведана в этом раунде")
-        current.add(target.id)
-        team.scouted_targets = ",".join(current)
-        text = f"«{team.name}» провёл(а) разведку «{target.name}» — корабль раскрыт до конца раунда."
-        action = m.Action(
-            game_id=game.id, round_number=game.round_number, team_id=team.id,
-            action_type="scout", target_team_id=target.id, cost=0, result_text=text,
-        )
-        db.add(action)
-        log(db, game, text)
+    # Проверяем, не было ли уже разведки в этом раунде
+    scout_actions = [a for a in this_round_actions if a.action_type == "scout"]
+    if scout_actions:
+        raise HTTPException(400, "Разведка уже использована в этом раунде")
+    target = next((t for t in game.teams if t.id == body.target_team_id), None)
+    if not target or target.id == team.id:
+        raise HTTPException(400, "Выберите корректную цель")
+    cost = gl.ACTION_BASE_COST["scout"]
+    if team.coins < cost:
+        raise HTTPException(400, "Недостаточно монет для разведки")
+    team.coins -= cost
+    current = gl.scouted_ids(team)
+    if target.id in current:
+        raise HTTPException(400, "Эта команда уже разведана в этом раунде")
+    current.add(target.id)
+    team.scouted_targets = ",".join(current)
+    text = f"«{team.name}» провёл(а) разведку «{target.name}» за {cost} монет — корабль раскрыт до конца раунда."
+    action = m.Action(
+        game_id=game.id, round_number=game.round_number, team_id=team.id,
+        action_type="scout", target_team_id=target.id, cost=cost, result_text=text,
+    )
+    db.add(action)
+    log(db, game, text)
     elif body.action_type == "repair":
         if team_battle_actions_left(team, game) <= 0:
             raise HTTPException(400, "Лимит действий в этом раунде исчерпан")
