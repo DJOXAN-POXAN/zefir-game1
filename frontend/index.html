@@ -6,7 +6,6 @@
     <title>Зефирные космолёты 🌸</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🚀%3C/text%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/static/styles.css" />
-    <!-- Подключаем общие скрипты (там определена openRules) -->
     <script src="/static/common.js"></script>
     <style>
         .main-card { max-width: 440px; margin: 0 auto; }
@@ -32,11 +31,9 @@
             </div>
             <button id="joinBtn" style="width:100%;">Войти</button>
             <div id="joinMsg" class="muted"></div>
-            <!-- Кнопка правил теперь работает, т.к. common.js подключён -->
             <button class="ghost" onclick="openRules()" style="width:100%;">📖 Правила игры</button>
         </div>
     </div>
-
     <script>
         document.getElementById('joinBtn').addEventListener('click', async () => {
             const code = document.getElementById('roomCode').value.trim().toUpperCase();
