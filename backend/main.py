@@ -445,6 +445,10 @@ async def team_upgrade(room_code: str, body: UpgradeIn, db: Session = Depends(ge
     else:
         team.coins -= cost
     setattr(team, f"lvl_{body.module}", current + 1)
+    # Если улучшили Энергию до 5 уровня, даём 300 монет бонусом
+    if body.module == "energy" and current + 1 == 5:
+    team.coins += 300
+    log(db, game, f"«{team.name}» достиг 5 уровня Энергии и получает 300 бонусных монет! ⚡")
     suffix = " (бесплатно, ускорение ⚡)" if used_free else ""
     log(db, game, f"«{team.name}» улучшает модуль «{gl.MODULE_NAMES[body.module]}» до уровня {current + 1}{suffix}.")
     await push(db, game)
