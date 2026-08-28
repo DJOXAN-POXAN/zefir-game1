@@ -112,17 +112,23 @@ def repair_module(team, module: str) -> int:
 def resolve_attack(attacker, target, chosen_module: str | None, target_has_shield: bool = False):
     """
     Возвращает (нанесённый_урон, имя_повреждённого_модуля, сообщение).
-    Если у цели активен щит — урон полностью блокируется, щит снимается, дальше не идём.
-    chosen_module задаётся, если у атакующего Тактика 3+ (выбор модуля цели),
-    иначе выбирается случайный модуль цели с уровнем > 1.
+    Если у цели активен щит — урон полностью блокируется, щит снимается.
+    Если атака равна защите, есть 60% шанс нанести 1 урон.
     """
     if target_has_shield:
         return 0, None, f"«{attacker.name}» атакует «{target.name}», но щит полностью блокирует урон!"
 
     dmg = max(0, attacker.lvl_attack - target.lvl_defense)
+    # Если атака равна защите, применяем шанс 60% нанести 1 урон
+    if dmg == 0 and attacker.lvl_attack == target.lvl_defense:
+        import random
+        if random.random() < 0.6:
+            dmg = 1
+
     if dmg <= 0:
         return 0, None, f"Атака «{attacker.name}» не нанесла урона (защита «{target.name}» поглотила всё)."
 
+    # Выбираем модуль для снижения
     mods = [m for m in MODULES if getattr(target, f"lvl_{m}") > 1]
     if not mods:
         return dmg, None, f"Урон {dmg}, но все модули «{target.name}» уже на минимуме."
