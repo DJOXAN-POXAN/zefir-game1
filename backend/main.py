@@ -1,7 +1,7 @@
 """
 Бэкенд игры «Зефирные космолёты».
 FastAPI + WebSockets + SQLite/PostgreSQL (SQLAlchemy).
-Запуск: uvicorn backend.main:app --host 0.0.0.0 --port 8080
+Запуск на Vercel через serverless-функцию.
 """
 import random
 import string
@@ -12,7 +12,7 @@ import os
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -51,7 +51,9 @@ except Exception as e:
 
 print("✅ Все импорты успешны")
 
+# ============ ГЛАВНОЕ ПРИЛОЖЕНИЕ ============
 app = FastAPI(title="Зефирные космолёты")
+# ============================================
 
 @app.on_event("startup")
 def startup():
@@ -445,10 +447,12 @@ async def team_upgrade(room_code: str, body: UpgradeIn, db: Session = Depends(ge
     else:
         team.coins -= cost
     setattr(team, f"lvl_{body.module}", current + 1)
-    # Если улучшили Энергию до 5 уровня, даём 300 монет бонусом
+
+    # Бонус за 5 уровень Энергии: 300 монет
     if body.module == "energy" and current + 1 == 5:
-    team.coins += 300
-    log(db, game, f"«{team.name}» достиг 5 уровня Энергии и получает 300 бонусных монет! ⚡")
+        team.coins += 300
+        log(db, game, f"«{team.name}» достиг 5 уровня Энергии и получает 300 бонусных монет! ⚡")
+
     suffix = " (бесплатно, ускорение ⚡)" if used_free else ""
     log(db, game, f"«{team.name}» улучшает модуль «{gl.MODULE_NAMES[body.module]}» до уровня {current + 1}{suffix}.")
     await push(db, game)
@@ -460,6 +464,7 @@ async def team_action(room_code: str, body: TeamActionIn, db: Session = Depends(
     if game.phase != "battle":
         raise HTTPException(400, "Действия доступны только в фазе «Звёздная битва»")
     this_round_actions = team_actions_used_this_round(game, team.id)
+
     if body.action_type == "attack":
         if team_battle_actions_left(team, game) <= 0:
             raise HTTPException(400, "Лимит действий в этом раунде исчерпан")
@@ -484,30 +489,32 @@ async def team_action(room_code: str, body: TeamActionIn, db: Session = Depends(
         )
         db.add(action)
         log(db, game, text)
+
     elif body.action_type == "scout":
-    # Проверяем, не было ли уже разведки в этом раунде
-    scout_actions = [a for a in this_round_actions if a.action_type == "scout"]
-    if scout_actions:
-        raise HTTPException(400, "Разведка уже использована в этом раунде")
-    target = next((t for t in game.teams if t.id == body.target_team_id), None)
-    if not target or target.id == team.id:
-        raise HTTPException(400, "Выберите корректную цель")
-    cost = gl.ACTION_BASE_COST["scout"]
-    if team.coins < cost:
-        raise HTTPException(400, "Недостаточно монет для разведки")
-    team.coins -= cost
-    current = gl.scouted_ids(team)
-    if target.id in current:
-        raise HTTPException(400, "Эта команда уже разведана в этом раунде")
-    current.add(target.id)
-    team.scouted_targets = ",".join(current)
-    text = f"«{team.name}» провёл(а) разведку «{target.name}» за {cost} монет — корабль раскрыт до конца раунда."
-    action = m.Action(
-        game_id=game.id, round_number=game.round_number, team_id=team.id,
-        action_type="scout", target_team_id=target.id, cost=cost, result_text=text,
-    )
-    db.add(action)
-    log(db, game, text)
+        # Разведка: платная, 1 раз за раунд, не расходует боевое действие
+        scout_actions = [a for a in this_round_actions if a.action_type == "scout"]
+        if scout_actions:
+            raise HTTPException(400, "Разведка уже использована в этом раунде")
+        target = next((t for t in game.teams if t.id == body.target_team_id), None)
+        if not target or target.id == team.id:
+            raise HTTPException(400, "Выберите корректную цель")
+        cost = gl.ACTION_BASE_COST["scout"]  # 20 монет
+        if team.coins < cost:
+            raise HTTPException(400, "Недостаточно монет для разведки")
+        team.coins -= cost
+        current = gl.scouted_ids(team)
+        if target.id in current:
+            raise HTTPException(400, "Эта команда уже разведана в этом раунде")
+        current.add(target.id)
+        team.scouted_targets = ",".join(current)
+        text = f"«{team.name}» провёл(а) разведку «{target.name}» за {cost} монет — корабль раскрыт до конца раунда."
+        action = m.Action(
+            game_id=game.id, round_number=game.round_number, team_id=team.id,
+            action_type="scout", target_team_id=target.id, cost=cost, result_text=text,
+        )
+        db.add(action)
+        log(db, game, text)
+
     elif body.action_type == "repair":
         if team_battle_actions_left(team, game) <= 0:
             raise HTTPException(400, "Лимит действий в этом раунде исчерпан")
